@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "Message": {
+      "title": "Message",
+      "description": "A chat message between a visitor and the admin.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "sender": { "type": "string", "enum": ["user", "admin"] },
+        "userId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["unread", "read"] }
+      },
+      "required": ["text", "sender", "userId", "timestamp"]
+    },
+    "Doodle": {
+      "title": "Doodle",
+      "description": "A special day greeting.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "message": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["date", "message", "icon", "color"]
+    },
+    "App": {
+      "title": "App",
+      "description": "An application in the App Hub.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string", "description": "Lucide icon name" },
+        "url": { "type": "string", "description": "App link URL" },
+        "category": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["name", "description", "icon", "url"]
+    },
+    "GalleryImage": {
+      "title": "Gallery Image",
+      "description": "An image in the photo gallery.",
+      "type": "object",
+      "properties": {
+        "url": { "type": "string" },
+        "caption": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["url", "caption"]
+    },
+    "MusicTrack": {
+      "title": "Music Track",
+      "description": "Background music tracks.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "url"]
+    },
+    "VisitorStats": {
+      "title": "Visitor Stats",
+      "description": "Global website statistics.",
+      "type": "object",
+      "properties": {
+        "visitorCount": { "type": "integer" }
+      },
+      "required": ["visitorCount"]
+    }
+  },
+  "firestore": {
+    "/messages/{messageId}": { "schema": "Message", "description": "Chat messages" },
+    "/doodles/{doodleId}": { "schema": "Doodle", "description": "Custom doodles" },
+    "/apps/{appId}": { "schema": "App", "description": "App Hub items" },
+    "/gallery/{imageId}": { "schema": "GalleryImage", "description": "Gallery photos" },
+    "/music/{trackId}": { "schema": "MusicTrack", "description": "Music playlist" },
+    "/site_stats/visitor_count": { "schema": "VisitorStats", "description": "Global visitor counter" }
+  }
+}

@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.uid == "NTRgYWTnThQvYwrh5qfJ1R4K9oh2" ||
+         request.auth.token.email == "dewansifat890@gmail.com");
+    }
+
+    // Rules for Visitor Stats - allow public access for read/write
+    match /site_stats/{docId} {
+      allow read, write: if true;
+    }
+
+    // Rules for Messages
+    match /messages/{messageId} {
+      // Users can read their own messages, Admins can read all
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      
+      // Users can create their own messages or bot messages, and delete their own
+      allow create, delete: if isAuthenticated() && 
+                            (request.resource.data.userId == request.auth.uid || 
+                             resource.data.userId == request.auth.uid);
+      
+      // Admins have full control
+      allow write: if isAdmin();
+    }
+
+    // Rules for Doodles
+    match /doodles/{doodleId} {
+      allow read, write: if true;
+    }
+
+    // Rules for Apps (App Hub)
+    match /apps/{appId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Rules for Gallery
+    match /gallery/{imageId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Music rules
+    match /music/{trackId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

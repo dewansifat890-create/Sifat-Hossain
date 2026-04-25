@@ -1,7 +1,16 @@
-export const PROFILE_IMAGE = 'https://picsum.photos/seed/sifat_profile/400/400';
+export const PROFILE_IMAGE = 'https://instasize.com/api/image/4ee9b3001a03ece1bcecdf71209b7c6e4796b8b14c8a3862d1ee2cf9da7ce0da.jpeg';
 export const LOGO_IMAGE = 'https://picsum.photos/seed/snowflake/200/200';
 
-export const APPS = [];
+export const APPS = [
+  {
+    id: '1',
+    name: 'Darling Hummingbird',
+    description: 'A beautiful digital experience built with cutting-edge technology.',
+    image: 'https://images.unsplash.com/photo-1444464666168-49d633b86797?q=80&w=2069&auto=format&fit=crop',
+    url: 'https://darling-hummingbird-8a9e74.netlify.app/',
+    icon: 'Smartphone'
+  }
+];
 
 export const SKILLS = [
   { name: 'App Developer', icon: 'Smartphone', url: 'modal:app-hub' },

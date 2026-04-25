@@ -18,11 +18,11 @@ export default function AppHub({ isModal = false }: { isModal?: boolean }) {
           </div>
           <div className="flex gap-3 md:gap-4 w-full md:w-auto">
             <div className="glass px-4 md:px-6 py-2 md:py-3 rounded-2xl border-white/10 flex-1 md:flex-none text-center">
-              <span className="text-xl md:text-2xl font-bold text-neon-purple">0</span>
+              <span className="text-xl md:text-2xl font-bold text-neon-purple">{APPS.length}</span>
               <span className="text-[9px] md:text-xs block text-white/50 uppercase tracking-widest">Apps Built</span>
             </div>
             <div className="glass px-4 md:px-6 py-2 md:py-3 rounded-2xl border-white/10 flex-1 md:flex-none text-center">
-              <span className="text-xl md:text-2xl font-bold text-neon-blue">0</span>
+              <span className="text-xl md:text-2xl font-bold text-neon-blue">1.2K+</span>
               <span className="text-[9px] md:text-xs block text-white/50 uppercase tracking-widest">Downloads</span>
             </div>
           </div>
@@ -61,6 +61,7 @@ export default function AppHub({ isModal = false }: { isModal?: boolean }) {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => window.open(app.url, '_blank')}
                   className="flex-1 py-1.5 md:py-3 glass rounded-lg md:rounded-xl border-neon-purple/30 text-neon-purple font-bold flex items-center justify-center gap-1 md:gap-2 text-[10px] md:text-base"
                 >
                   <Play size={12} md:size={18} /> <span className="hidden xs:inline">Use App</span>
@@ -68,6 +69,7 @@ export default function AppHub({ isModal = false }: { isModal?: boolean }) {
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
+                  onClick={() => window.open(app.url, '_blank')}
                   className="w-full md:w-12 h-8 md:h-12 glass rounded-lg md:rounded-xl flex items-center justify-center text-white/50 hover:text-white"
                 >
                   <ExternalLink size={12} md:size={18} />

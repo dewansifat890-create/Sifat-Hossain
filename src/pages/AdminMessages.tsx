@@ -2,12 +2,66 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Send, User, MessageSquare, Clock, ShieldCheck, ChevronRight, Star, Plus, Trash2, Calendar, Palette, Type } from 'lucide-react';
 import { DOODLES } from '../constants/data';
+import { db, auth } from '../firebase';
+import { collection, query, onSnapshot, orderBy, addDoc, serverTimestamp, deleteDoc, doc, setDoc, where } from 'firebase/firestore';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 interface Message {
   id: string;
   text: string;
-  sender: 'user' | 'admin';
-  timestamp: string;
+  sender: 'user' | 'admin' | 'bot';
+  timestamp: any;
   userId: string;
 }
 
@@ -18,25 +72,73 @@ export default function AdminMessages() {
   const [activeTab, setActiveTab] = useState<'messages' | 'doodles'>('messages');
   const [adminDoodles, setAdminDoodles] = useState(DOODLES);
   const [newDoodle, setNewDoodle] = useState({ date: '', message: '', icon: 'Star', color: '#00F2FF' });
-  const socketRef = useRef<WebSocket | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}`);
-    socketRef.current = socket;
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'INIT') {
-        setMessages(data.data);
-      } else if (data.type === 'NEW_MESSAGE') {
-        setMessages(prev => [...prev, data.data]);
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        // Check if UID matches the admin UID
+        const adminUid = "NTRgYWTnThQvYwrh5qfJ1R4K9oh2";
+        const isUserAdmin = user.uid === adminUid || user.email === "dewansifat890@gmail.com";
+        setIsAuthorized(isUserAdmin);
+      } else {
+        setIsAuthorized(false);
       }
-    };
+    });
 
-    return () => socket.close();
+    return () => unsubscribeAuth();
   }, []);
+
+  useEffect(() => {
+    if (isAuthorized === false) {
+      // Redirect or show error
+      console.error("Unauthorized access to admin panel");
+    }
+    
+    if (!isAuthorized) return;
+
+    // Listen for all messages in Firestore
+    const q = query(collection(db, 'messages'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Message[];
+      
+      // Sort client-side to avoid index requirement
+      const sortedMsgs = msgs.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis?.() || Date.now();
+        const timeB = b.timestamp?.toMillis?.() || Date.now();
+        return timeA - timeB;
+      });
+      
+      setMessages(sortedMsgs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'messages');
+    });
+
+    // Listen for doodles in Firestore
+    const doodlesQuery = query(collection(db, 'doodles'));
+    const unsubscribeDoodles = onSnapshot(doodlesQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const fetchedDoodles = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setAdminDoodles(fetchedDoodles as any);
+      } else {
+        setAdminDoodles(DOODLES);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'doodles');
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeDoodles();
+    };
+  }, [isAuthorized]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -44,53 +146,99 @@ export default function AdminMessages() {
     }
   }, [messages, selectedUserId]);
 
-  const users = Array.from(new Set(messages.map(m => m.userId)));
-  const selectedUserMessages = messages.filter(m => m.userId === selectedUserId);
-
-  const handleReply = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyText.trim() || !selectedUserId || !socketRef.current) return;
-
-    const payload = {
-      text: replyText,
-      sender: 'admin',
-      userId: selectedUserId,
-    };
-
-    socketRef.current.send(JSON.stringify({
-      type: 'ADMIN_REPLY',
-      payload
-    }));
-
-    setReplyText("");
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
   };
 
-  const handleAddDoodle = (e: React.FormEvent) => {
+  if (isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="text-neon-blue animate-pulse font-bold tracking-widest">VERIFYING ADMIN ACCESS...</div>
+      </div>
+    );
+  }
+
+  if (isAuthorized === false) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 mb-6 border border-red-500/20">
+          <ShieldCheck size={40} />
+        </div>
+        <h1 className="text-2xl font-black text-white mb-2 tracking-tighter uppercase">ACCESS DENIED</h1>
+        <p className="text-white/40 max-w-md text-sm leading-relaxed">
+          You are not authorized to access the Admin Control Center. 
+          Please ensure you are logged in with the correct administrator account.
+        </p>
+        <div className="flex gap-4 mt-8">
+          <button 
+            onClick={handleLogin}
+            className="px-8 py-3 bg-white text-black rounded-xl hover:bg-white/90 transition-all font-bold text-xs tracking-widest"
+          >
+            LOGIN WITH GOOGLE
+          </button>
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="px-8 py-3 glass rounded-xl border-white/10 text-white/60 hover:text-white transition-all font-bold text-xs tracking-widest"
+          >
+            RETURN TO HOME
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const users = Array.from(new Set(messages.map(m => m.userId))).sort((a, b) => {
+    const lastA = messages.filter(m => m.userId === a).pop()?.timestamp?.toMillis?.() || Date.now();
+    const lastB = messages.filter(m => m.userId === b).pop()?.timestamp?.toMillis?.() || Date.now();
+    return lastB - lastA; // Most recent first
+  });
+  const selectedUserMessages = messages.filter(m => m.userId === selectedUserId);
+
+  const handleReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyText.trim() || !selectedUserId) return;
+
+    try {
+      await addDoc(collection(db, 'messages'), {
+        text: replyText,
+        sender: 'admin',
+        userId: selectedUserId,
+        timestamp: serverTimestamp(),
+        status: 'read'
+      });
+      setReplyText("");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'messages');
+    }
+  };
+
+  const handleAddDoodle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDoodle.date || !newDoodle.message) return;
     
-    const updated = [...adminDoodles, newDoodle];
-    setAdminDoodles(updated);
-    localStorage.setItem('custom_doodles', JSON.stringify(updated));
-    setNewDoodle({ date: '', message: '', icon: 'Star', color: '#00F2FF' });
-    
-    // Notify other parts of the app (if they listen)
-    window.dispatchEvent(new CustomEvent('doodles-updated'));
-  };
-
-  const handleDeleteDoodle = (index: number) => {
-    const updated = adminDoodles.filter((_, i) => i !== index);
-    setAdminDoodles(updated);
-    localStorage.setItem('custom_doodles', JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('doodles-updated'));
-  };
-
-  useEffect(() => {
-    const saved = localStorage.getItem('custom_doodles');
-    if (saved) {
-      setAdminDoodles(JSON.parse(saved));
+    try {
+      await addDoc(collection(db, 'doodles'), {
+        ...newDoodle,
+        createdAt: serverTimestamp()
+      });
+      setNewDoodle({ date: '', message: '', icon: 'Star', color: '#00F2FF' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'doodles');
     }
-  }, []);
+  };
+
+  const handleDeleteDoodle = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'doodles', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'doodles');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#050505] text-white p-4 md:p-8 font-sans">
@@ -122,7 +270,7 @@ export default function AdminMessages() {
             <p className="text-[10px] text-white/40 uppercase tracking-[0.2em] mt-1">Admin Control Center</p>
           </div>
           
-          <div className="flex-grow overflow-y-auto">
+          <div className="flex-grow overflow-y-auto hide-scrollbar">
             {users.length === 0 ? (
               <div className="p-8 text-center text-white/20">
                 <p className="text-sm">No conversations yet</p>
@@ -148,7 +296,7 @@ export default function AdminMessages() {
                       <div className="flex justify-between items-center">
                         <span className="text-xs font-bold truncate">{userId}</span>
                         <span className="text-[8px] text-white/30">
-                          {new Date(lastMsg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {lastMsg.timestamp?.toDate ? lastMsg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
                         </span>
                       </div>
                       <p className="text-[10px] text-white/50 truncate mt-1">{lastMsg.text}</p>
@@ -186,31 +334,33 @@ export default function AdminMessages() {
 
               <div 
                 ref={scrollRef}
-                className="flex-grow overflow-y-auto p-6 space-y-6 scrollbar-hide"
+                className="flex-grow overflow-y-auto p-6 space-y-6 hide-scrollbar"
               >
                 {selectedUserMessages.map((msg) => (
                   <div 
                     key={msg.id}
-                    className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}
+                    className={`flex ${msg.sender === 'admin' || msg.sender === 'bot' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div className={`max-w-[70%] p-4 rounded-2xl text-sm ${
-                      msg.sender === 'admin' 
+                      msg.sender === 'admin' || msg.sender === 'bot'
                         ? 'bg-neon-blue/20 border border-neon-blue/30 text-white rounded-tr-none' 
                         : 'bg-white/5 border border-white/10 text-white/80 rounded-tl-none'
                     }`}>
                       <div className="flex items-center gap-2 mb-1">
                         {msg.sender === 'admin' ? (
                           <ShieldCheck size={12} className="text-neon-blue" />
+                        ) : msg.sender === 'bot' ? (
+                          <MessageSquare size={12} className="text-neon-purple" />
                         ) : (
                           <User size={12} className="text-white/40" />
                         )}
                         <span className="text-[8px] uppercase tracking-widest font-bold opacity-40">
-                          {msg.sender === 'admin' ? 'You (Admin)' : 'User'}
+                          {msg.sender === 'admin' ? 'You (Admin)' : msg.sender === 'bot' ? 'AI Auto-Reply' : 'User'}
                         </span>
                       </div>
                       <p className="leading-relaxed">{msg.text}</p>
                       <p className="text-[8px] mt-2 opacity-30 text-right">
-                        {new Date(msg.timestamp).toLocaleString()}
+                        {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleString() : '...'}
                       </p>
                     </div>
                   </div>
@@ -334,8 +484,8 @@ export default function AdminMessages() {
               <div className="space-y-4">
                 <h3 className="text-lg font-bold mb-4 text-white/60">ACTIVE DOODLES</h3>
                 <div className="space-y-3">
-                  {adminDoodles.map((d, i) => (
-                    <div key={i} className="glass-card p-4 border-white/5 flex items-center justify-between group hover:border-neon-purple/30 transition-all">
+                  {adminDoodles.map((d: any, i) => (
+                    <div key={d.id || i} className="glass-card p-4 border-white/5 flex items-center justify-between group hover:border-neon-purple/30 transition-all">
                       <div className="flex items-center gap-4">
                         <div 
                           className="w-12 h-12 rounded-xl glass flex items-center justify-center shadow-lg"
@@ -352,7 +502,7 @@ export default function AdminMessages() {
                         </div>
                       </div>
                       <button 
-                        onClick={() => handleDeleteDoodle(i)}
+                        onClick={() => handleDeleteDoodle(d.id)}
                         className="p-2 text-white/20 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 size={18} />

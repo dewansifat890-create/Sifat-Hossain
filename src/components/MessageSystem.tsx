@@ -1,12 +1,67 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { Send, X, MessageSquare, User, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
+import { Send, X, MessageSquare, User, ShieldCheck, Volume2, VolumeX, Mail } from 'lucide-react';
+import { db, auth } from '../firebase';
+import { collection, addDoc, query, where, onSnapshot, orderBy, serverTimestamp, Timestamp, deleteDoc, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getGemini, SYSTEM_PROMPT } from '../services/gemini';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 interface Message {
   id: string;
   text: string;
-  sender: 'user' | 'admin';
-  timestamp: string;
+  sender: 'user' | 'admin' | 'bot';
+  timestamp: any;
   userId: string;
 }
 
@@ -16,17 +71,69 @@ export default function MessageSystem() {
   const [message, setMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isMuted, setIsMuted] = useState(false);
-  const [userId] = useState(() => {
-    const savedId = localStorage.getItem('chat_user_id');
-    if (savedId) return savedId;
-    const newId = 'user_' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem('chat_user_id', newId);
-    return newId;
-  });
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<boolean>(false);
   
-  const socketRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Ensure user is authenticated (anonymously if needed) to send/receive messages
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUserId(user.uid);
+        setAuthError(false);
+      } else {
+        signInAnonymously(auth).catch(err => {
+          console.error("Auth error:", err);
+          if (err.code === 'auth/configuration-not-found') {
+            setAuthError(true);
+            // Fallback to a local ID so the UI doesn't break, 
+            // though Firestore writes might still fail depending on rules.
+            const localId = localStorage.getItem('chat_fallback_id') || 'visitor_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('chat_fallback_id', localId);
+            setCurrentUserId(localId);
+            console.warn("HINT: Please enable 'Anonymous' authentication in your Firebase Console (Build > Authentication > Sign-in method).");
+          }
+        });
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    // Listen for messages in Firestore for this user
+    const q = query(
+      collection(db, 'messages'),
+      where('userId', '==', currentUserId)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Message[];
+      
+      // Sort client-side to avoid requiring a composite index in Firestore
+      const sortedMsgs = msgs.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis?.() || Date.now();
+        const timeB = b.timestamp?.toMillis?.() || Date.now();
+        return timeA - timeB;
+      });
+      
+      setChatMessages(sortedMsgs);
+    }, (error) => {
+      if (error.message.includes('The query requires an index')) {
+        console.error("HINT: Please click the link in the error message to create the required Firestore index.");
+      }
+      handleFirestoreError(error, OperationType.GET, 'messages');
+    });
+
+    return () => unsubscribe();
+  }, [currentUserId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -44,27 +151,39 @@ export default function MessageSystem() {
     setIsMuted(!isMuted);
   };
 
-  useEffect(() => {
-    // Connect to WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${window.location.host}`);
-    socketRef.current = socket;
-
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'INIT') {
-        // Filter messages for this user
-        const userMsgs = data.data.filter((m: any) => m.userId === userId);
-        setChatMessages(userMsgs);
-      } else if (data.type === 'NEW_MESSAGE') {
-        if (data.data.userId === userId) {
-          setChatMessages(prev => [...prev, data.data]);
+  const handleClearChat = async () => {
+    if (!currentUserId) return;
+    
+    try {
+      const q = query(
+        collection(db, 'messages'),
+        where('userId', '==', currentUserId)
+      );
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((d) => {
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+      
+      // Auto-reply after clearing
+      setTimeout(async () => {
+        try {
+          await addDoc(collection(db, 'messages'), {
+            text: "Chat cleared successfully. How can I assist you today?",
+            sender: 'bot',
+            userId: currentUserId,
+            timestamp: serverTimestamp(),
+            status: 'read'
+          });
+        } catch (e) {
+          console.error("Welcome msg error:", e);
         }
-      }
-    };
-
-    return () => socket.close();
-  }, [userId]);
+      }, 500);
+    } catch (error) {
+      console.error("Clear chat error:", error);
+    }
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -110,22 +229,62 @@ export default function MessageSystem() {
     }
   }, []);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || !socketRef.current) return;
+    if (!message.trim() || !currentUserId) return;
 
-    const payload = {
-      text: message,
-      sender: 'user',
-      userId: userId,
-    };
+    const userMsgText = message;
+    try {
+      await addDoc(collection(db, 'messages'), {
+        text: userMsgText,
+        sender: 'user',
+        userId: currentUserId,
+        timestamp: serverTimestamp(),
+        status: 'unread'
+      });
+      setMessage("");
 
-    socketRef.current.send(JSON.stringify({
-      type: 'USER_MESSAGE',
-      payload
-    }));
+      // Trigger AI Auto-reply
+      // We simulate a short delay for realism
+      setTimeout(async () => {
+        try {
+          const ai = getGemini();
+          
+          // Simple context building
+          const history = chatMessages.slice(-5).map(m => ({
+            role: m.sender === 'user' ? 'user' : 'model',
+            parts: [{ text: m.text }]
+          }));
 
-    setMessage("");
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [
+              ...history as any,
+              { role: 'user', parts: [{ text: userMsgText }] }
+            ],
+            config: {
+              systemInstruction: SYSTEM_PROMPT,
+              temperature: 0.7,
+            }
+          });
+
+          const aiText = response.text || "Thank you for your message. Please contact Dewan Sifat Hossain at dewansifat890@gmail.com for direct help.";
+
+          await addDoc(collection(db, 'messages'), {
+            text: aiText,
+            sender: 'bot',
+            userId: currentUserId,
+            timestamp: serverTimestamp(),
+            status: 'read'
+          });
+        } catch (err) {
+          console.error("Auto-reply error:", err);
+        }
+      }, 2000);
+
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'messages');
+    }
   };
 
   return (
@@ -145,7 +304,7 @@ export default function MessageSystem() {
         className="w-14 h-14 rounded-full glass flex items-center justify-center border-neon-blue/50 text-neon-blue shadow-[0_0_20px_rgba(0,242,255,0.3)] relative"
       >
         {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
-        {!isOpen && chatMessages.some(m => m.sender === 'admin') && (
+        {!isOpen && chatMessages.some(m => m.sender === 'admin' || m.sender === 'bot') && (
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-neon-pink rounded-full animate-pulse" />
         )}
       </motion.button>
@@ -160,23 +319,38 @@ export default function MessageSystem() {
           >
             <div className="p-4 border-b border-white/10 flex items-center justify-between bg-neon-blue/5">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-neon-blue/20 flex items-center justify-center text-neon-blue">
-                  <ShieldCheck size={18} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Sifat</h3>
-                  <p className="text-[10px] text-neon-blue uppercase tracking-widest font-bold">Online</p>
-                </div>
+                <a 
+                  href="mailto:dewansifat890@gmail.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Send Email"
+                  className="text-white/40 hover:text-neon-blue transition-colors p-1"
+                >
+                  <Mail size={16} />
+                </a>
+                <button 
+                  onClick={handleClearChat}
+                  title="Clear Chat"
+                  className="text-white/40 hover:text-red-400 transition-colors p-1"
+                >
+                  <MessageSquare size={16} />
+                </button>
+                <button onClick={() => setIsOpen(false)} className="text-white/40 hover:text-white transition-colors">
+                  <X size={18} />
+                </button>
               </div>
-              <button onClick={() => setIsOpen(false)} className="text-white/40 hover:text-white transition-colors">
-                <X size={18} />
-              </button>
             </div>
 
             <div 
               ref={scrollRef}
-              className="flex-grow overflow-y-auto p-4 space-y-4 scrollbar-hide"
+              className="flex-grow overflow-y-auto p-4 space-y-4 hide-scrollbar"
             >
+              {authError && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] text-red-400 text-center mb-4">
+                  <p className="font-bold mb-1">Firebase Auth Error!</p>
+                  Please enable "Anonymous" authentication in your Firebase Console to use the message system.
+                </div>
+              )}
               {chatMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6">
                   <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-white/20 mb-4">
@@ -197,7 +371,7 @@ export default function MessageSystem() {
                     }`}>
                       <p>{msg.text}</p>
                       <p className="text-[8px] mt-1 opacity-40 text-right">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
                       </p>
                     </div>
                   </div>

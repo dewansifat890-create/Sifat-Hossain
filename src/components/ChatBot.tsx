@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useRef, useEffect } from 'react';
 import { Bot, Send, X, Sparkles, Loader2, Trash2 } from 'lucide-react';
+import { getGemini, SYSTEM_PROMPT } from '../services/gemini';
 
 interface Message {
   role: 'user' | 'model';
@@ -12,28 +13,8 @@ export default function ChatBot() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [chatId] = useState(() => crypto.randomUUID());
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-
-  const systemPrompt = `You are Neura Board, the official AI assistant for Dewan Sifat Hossain's portfolio website and his company, SAID SOFT. 
-
-CRITICAL RULES:
-1. ONLY answer questions related to Dewan Sifat Hossain, his work, his skills, his company SAID SOFT, and this website.
-2. If a user asks about anything else (e.g., general knowledge, math, other people, coding help for other projects), politely refuse and say: "I am Neura Board, and I only provide information about Dewan Sifat Hossain and his digital world."
-3. Keep your answers clear, professional, and futuristic.
-4. LANGUAGE SUPPORT: You can communicate in ANY language, including Bengali (বাংলা), English, etc. Always respond in the language the user uses.
-5. Use the following information to answer accurately:
-   - Name: Dewan Sifat Hossain
-   - Role: Futuristic Developer & Content Creator from Bangladesh.
-   - Company: SAID SOFT (Founder & Lead).
-   - SAID SOFT Information: A premium software brand dedicated to crafting futuristic digital experiences. Specializes in high-end app development, web solutions, and creative content creation.
-   - Skills: App Development, Website Development, Video Editing, Photo Editing, YouTube Content Creation, Facebook Content Creator.
-   - Apps/Projects: Smart Tasker (AI Task Management), Said Soft Editor (Video Tool), Neon Messenger (Encrypted Chat), Hopenity Social.
-   - Socials: Active on Facebook, Instagram, TikTok, Twitter, and Hopenity.
-   - Mission: Crafting digital experiences and standing for justice (#JusticeForHadi).
-6. Always speak in a high-tech, helpful, and polite tone.`;
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -56,74 +37,52 @@ CRITICAL RULES:
   // Initial welcome message
   useEffect(() => {
     if (messages.length === 0) {
-      connectWebSocket("", true);
+      const welcomeMsg = "Hello! I am Neura Board, your AI assistant. How can I help you explore Dewan Sifat's world today?";
+      setMessages([{ role: 'model', text: welcomeMsg }]);
     }
   }, []);
 
-  const connectWebSocket = (message: string, initChat: boolean) => {
-    setIsLoading(true);
-    const url = "wss://backend.buildpicoapps.com/api/chatbot/chat";
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.addEventListener("open", () => {
-      ws.send(
-        JSON.stringify({
-          chatId: chatId,
-          appId: "rate-rather",
-          systemPrompt: systemPrompt,
-          message: initChat ? "A very short welcome message from Neura Board" : message,
-        })
-      );
-    });
-
-    // Add an empty model message to update
-    setMessages(prev => [...prev, { role: 'model', text: "" }]);
-
-    ws.onmessage = (event) => {
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMsg = newMessages[newMessages.length - 1];
-        if (lastMsg && lastMsg.role === 'model') {
-          lastMsg.text += event.data;
-        }
-        return [...newMessages];
-      });
-    };
-
-    ws.onclose = (event) => {
-      setIsLoading(false);
-      wsRef.current = null;
-    };
-
-    ws.onerror = () => {
-      setMessages(prev => {
-        const newMessages = [...prev];
-        const lastMsg = newMessages[newMessages.length - 1];
-        if (lastMsg && lastMsg.role === 'model' && lastMsg.text === "") {
-          lastMsg.text = "Error getting response from server. Refresh the page and try again.";
-        }
-        return [...newMessages];
-      });
-      setIsLoading(false);
-      wsRef.current = null;
-    };
-  };
-
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
+    setIsLoading(true);
     
-    connectWebSocket(userMessage, false);
+    try {
+      const ai = getGemini();
+      
+      // Filter out messages that might be too old or large to keep it performant
+      const recentHistory = messages.slice(-10).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.text }]
+      }));
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          ...recentHistory,
+          { role: 'user', parts: [{ text: userMessage }] }
+        ],
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          temperature: 0.7,
+        }
+      });
+
+      const aiText = response.text || "I apologize, but I'm having trouble responding right now. Please try again later.";
+      setMessages(prev => [...prev, { role: 'model', text: aiText }]);
+    } catch (err) {
+      console.error("Gemini API Error:", err);
+      setMessages(prev => [...prev, { role: 'model', text: "Systems offline. Connection to Neura Core lost. Please try again later." }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const clearChat = () => {
-    if (wsRef.current) wsRef.current.close();
-    setMessages([]);
-    connectWebSocket("", true);
+    setMessages([{ role: 'model', text: "Chat history cleared. Systems rebooted. How can I assist you?" }]);
   };
 
   return (
@@ -192,7 +151,7 @@ CRITICAL RULES:
                   </motion.div>
                 )
               ))}
-              {isLoading && !wsRef.current && (
+              {isLoading && (
                 <div className="flex justify-start">
                   <div className="glass p-3 rounded-2xl rounded-tl-none border-white/10">
                     <Loader2 size={16} className="animate-spin text-neon-purple" />

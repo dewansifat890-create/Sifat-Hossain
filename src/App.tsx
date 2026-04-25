@@ -8,7 +8,6 @@ import Company from './components/Company';
 import AppHub from './components/AppHub';
 import Gallery from './components/Gallery';
 import Socials from './components/Socials';
-import MessageSystem from './components/MessageSystem';
 import ChatBot from './components/ChatBot';
 import MusicManager from './components/MusicManager';
 import MusicPrompt from './components/MusicPrompt';
@@ -16,45 +15,28 @@ import Modal from './components/Modal';
 import AdminMessages from './pages/AdminMessages';
 import { PROFILE_IMAGE, APPS, BRAND_VIDEO_URL } from './constants/data';
 import { Layers } from 'lucide-react';
+import { db, auth } from './firebase';
+import { doc, onSnapshot, updateDoc, increment as firestoreIncrement, getDoc, setDoc } from 'firebase/firestore';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [visitorCount, setVisitorCount] = useState(0);
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
   const [isAppHubModalOpen, setIsAppHubModalOpen] = useState(false);
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
 
   const isAdminPage = window.location.pathname === '/admin-messages';
 
-  const formatCount = (count: number) => {
-    if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M+';
-    if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K+';
-    return count.toString();
-  };
-
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       setMousePos({ x: e.clientX, y: e.clientY });
     };
     window.addEventListener('mousemove', handleMouseMove);
-    
-    // Visitor count logic (using localStorage to simulate global count for now)
-    const storedCount = localStorage.getItem('visitor_count_v1');
-    const currentCount = storedCount ? parseInt(storedCount) : 0; // Starting from 0 as requested
-    
-    // Increment only once per session
-    const sessionVisited = sessionStorage.getItem('has_visited_v1');
-    if (!sessionVisited) {
-      const newCount = currentCount + 1;
-      localStorage.setItem('visitor_count_v1', newCount.toString());
-      setVisitorCount(newCount);
-      sessionStorage.setItem('has_visited_v1', 'true');
-    } else {
-      setVisitorCount(currentCount);
-    }
 
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
 
   if (isAdminPage) {
@@ -140,17 +122,6 @@ export default function App() {
                 transition={{ duration: 0.8, delay: 0.8 }}
                 className="mt-8 md:mt-12 flex flex-col items-center gap-8"
               >
-                <div className="flex flex-wrap justify-center gap-3 md:gap-6">
-                  <div className="glass px-5 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl border-white/10 flex flex-col items-center min-w-[120px] md:min-w-[140px]">
-                    <span className="text-xl md:text-3xl font-bold text-neon-blue tracking-tighter">{formatCount(visitorCount)}</span>
-                    <span className="text-[8px] md:text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Total Visitors</span>
-                  </div>
-                  <div className="glass px-5 md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl border-white/10 flex flex-col items-center min-w-[120px] md:min-w-[140px]">
-                    <span className="text-xl md:text-3xl font-bold text-neon-purple tracking-tighter">{APPS.length}</span>
-                    <span className="text-[8px] md:text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Total Apps</span>
-                  </div>
-                </div>
-
                 <div className="flex justify-center gap-4 md:gap-12">
                   {/* Gallery Shortcut Icon */}
                   <motion.div
@@ -180,7 +151,7 @@ export default function App() {
 
                   {/* App Hub Shortcut Icon */}
                   <motion.div
-                    onClick={() => setIsAppHubModalOpen(true)}
+                    onClick={() => window.open('https://darling-hummingbird-8a9e74.netlify.app/', '_blank')}
                     whileHover={{ scale: 1.1, y: -5 }}
                     whileTap={{ scale: 0.9 }}
                     className="group flex flex-col items-center gap-3 cursor-pointer"
@@ -250,7 +221,6 @@ export default function App() {
             </footer>
           </main>
 
-          <MessageSystem />
           <ChatBot />
           <MusicManager />
           <MusicPrompt />

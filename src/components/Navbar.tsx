@@ -1,8 +1,62 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, useRef } from 'react';
-import { Menu, X, ChevronRight, User, Share2, MoreVertical, Volume2, VolumeX, Gift, PartyPopper, Heart, Flower2, TreePine, Star, Cake, Sun, Moon, Cloud, Zap, Sparkles, Smile, Coffee } from 'lucide-react';
+import { Menu, X, ChevronRight, User, Share2, MoreVertical, Volume2, VolumeX, Gift, PartyPopper, Heart, Flower2, TreePine, Star, Cake, Sun, Moon, Cloud, Zap, Sparkles, Smile, Coffee, ShieldCheck } from 'lucide-react';
 import { DOODLES } from '../constants/data';
 import { getAiDoodle } from '../services/geminiDoodle';
+import { db } from '../firebase';
+import { collection, query, onSnapshot } from 'firebase/firestore';
+import { auth } from '../firebase';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const doodleIconMap: Record<string, any> = {
   Gift,
@@ -27,8 +81,22 @@ export default function Navbar() {
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentDoodle, setCurrentDoodle] = useState<any>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (user) {
+        const adminUid = "NTRgYWTnThQvYwrh5qfJ1R4K9oh2";
+        setIsAdminUser(user.uid === adminUid || user.email === "dewansifat890@gmail.com");
+      } else {
+        setIsAdminUser(false);
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
@@ -45,14 +113,11 @@ export default function Navbar() {
     document.addEventListener('mousedown', handleClickOutside);
 
     // Check for today's doodle
-    const checkDoodles = async () => {
+    const checkDoodles = async (allDoodles: any[]) => {
       const today = new Date();
       const month = String(today.getMonth() + 1).padStart(2, '0');
       const day = String(today.getDate()).padStart(2, '0');
       const dateStr = `${month}-${day}`;
-      
-      const saved = localStorage.getItem('custom_doodles');
-      const allDoodles = saved ? JSON.parse(saved) : DOODLES;
       
       const doodle = allDoodles.find((d: any) => d.date === dateStr);
       if (doodle) {
@@ -68,13 +133,27 @@ export default function Navbar() {
       }
     };
 
-    checkDoodles();
-    window.addEventListener('doodles-updated', checkDoodles);
+    // Listen for doodles in Firestore
+    const doodlesQuery = query(collection(db, 'doodles'));
+    const unsubscribeDoodles = onSnapshot(doodlesQuery, (snapshot) => {
+      let allDoodles: any[] = [...DOODLES];
+      if (!snapshot.empty) {
+        const fetchedDoodles = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        allDoodles = [...allDoodles, ...fetchedDoodles];
+      }
+      checkDoodles(allDoodles);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'doodles');
+      checkDoodles(DOODLES);
+    });
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
       document.removeEventListener('mousedown', handleClickOutside);
-      window.removeEventListener('doodles-updated', checkDoodles);
+      unsubscribeDoodles();
     };
   }, []);
 
@@ -86,7 +165,8 @@ export default function Navbar() {
 
   const navLinks = [
     { name: 'Profile', href: '#profile', icon: User },
-    { name: 'Socials', href: '#socials', icon: Share2 }
+    { name: 'Socials', href: '#socials', icon: Share2 },
+    ...(isAdminUser ? [{ name: 'Admin', href: '/admin-messages', icon: ShieldCheck }] : [])
   ];
 
   return (
