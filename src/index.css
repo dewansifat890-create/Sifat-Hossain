@@ -9,6 +9,16 @@
 }
 
 @layer base {
+  html, body {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    display: none;
+  }
+
   body {
     @apply bg-[#050505] text-white overflow-x-hidden selection:bg-neon-blue selection:text-black;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;

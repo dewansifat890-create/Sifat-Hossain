@@ -6,6 +6,9 @@ export default function MusicPrompt() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
+    const isCurrentlyMuted = localStorage.getItem('music-muted') === 'true';
+    if (isCurrentlyMuted) return;
+
     const timer = setTimeout(() => {
       setIsVisible(true);
       

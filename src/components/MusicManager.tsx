@@ -7,83 +7,86 @@ export default function MusicManager() {
   const bgAudioRef = useRef<HTMLAudioElement | null>(null);
   const hadiAudioRef = useRef<HTMLAudioElement | null>(null);
   const [isHadiPlaying, setIsHadiPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => localStorage.getItem('music-muted') === 'true');
 
+  // Initialize Audio objects once
   useEffect(() => {
-    // Initialize background music
-    bgAudioRef.current = new Audio(BG_MUSIC_URL);
-    bgAudioRef.current.loop = true;
-    bgAudioRef.current.volume = 0.15;
-
-    // Initialize Hadi music
-    hadiAudioRef.current = new Audio(HADI_MUSIC_URL);
-    hadiAudioRef.current.loop = false;
-    hadiAudioRef.current.volume = 0.5;
-
-    // Listen for custom event to toggle Hadi music
-    const handleToggleHadi = () => {
-      if (hadiAudioRef.current) {
-        if (hadiAudioRef.current.paused) {
-          hadiAudioRef.current.play().catch(() => {});
-          setIsHadiPlaying(true);
-          // Pause background music
-          bgAudioRef.current?.pause();
-        } else {
-          hadiAudioRef.current.pause();
-          hadiAudioRef.current.currentTime = 0;
-          setIsHadiPlaying(false);
-          // Resume background music if not muted
-          if (!isMuted) {
-            bgAudioRef.current?.play().catch(() => {});
-          }
-        }
-      }
-    };
-
-    // Auto-resume background music when Hadi music ends
-    if (hadiAudioRef.current) {
-      hadiAudioRef.current.onended = () => {
-        setIsHadiPlaying(false);
-        if (!isMuted) {
-          bgAudioRef.current?.play().catch(() => {});
-        }
-      };
+    if (!bgAudioRef.current) {
+      bgAudioRef.current = new Audio(BG_MUSIC_URL);
+      bgAudioRef.current.loop = true;
+      bgAudioRef.current.volume = 0.15;
+    }
+    if (!hadiAudioRef.current) {
+      hadiAudioRef.current = new Audio(HADI_MUSIC_URL);
+      hadiAudioRef.current.loop = true;
+      hadiAudioRef.current.volume = 0.6; // High volume for tribute
     }
 
-    const handleToggleMute = () => {
-      setIsMuted(prev => {
-        const newMuted = !prev;
-        if (bgAudioRef.current) {
-          if (newMuted) {
-            bgAudioRef.current.pause();
-          } else if (!isHadiPlaying) {
-            bgAudioRef.current.play().catch(() => {});
-          }
-        }
-        return newMuted;
-      });
-    };
-
-    window.addEventListener('toggle-hadi-music', handleToggleHadi);
-    window.addEventListener('toggle-bg-music', handleToggleMute);
-
-    // Initial play for background music on first interaction
+    const bgAudio = bgAudioRef.current;
+    
+    // Auto-play on first interaction logic
     const handleFirstInteraction = () => {
-      if (!isHadiPlaying && !isMuted) {
-        bgAudioRef.current?.play().catch(() => {});
+      const currentMuted = localStorage.getItem('music-muted') === 'true';
+      if (!currentMuted) {
+        bgAudio.play().catch(() => {});
       }
       window.removeEventListener('click', handleFirstInteraction);
     };
     window.addEventListener('click', handleFirstInteraction);
 
     return () => {
-      bgAudioRef.current?.pause();
-      hadiAudioRef.current?.pause();
-      window.removeEventListener('toggle-hadi-music', handleToggleHadi);
-      window.removeEventListener('toggle-bg-music', handleToggleMute);
       window.removeEventListener('click', handleFirstInteraction);
     };
-  }, [isHadiPlaying, isMuted]);
+  }, []);
+
+  // Sync state with localStorage and broadcast to UI
+  useEffect(() => {
+    localStorage.setItem('music-muted', isMuted.toString());
+    window.dispatchEvent(new CustomEvent('music-status', { 
+      detail: { isMuted } 
+    }));
+  }, [isMuted]);
+
+  // Global Event Listeners
+  useEffect(() => {
+    const handleToggleMute = () => setIsMuted(prev => !prev);
+    const handleHadiOn = () => setIsHadiPlaying(true);
+    const handleHadiOff = () => setIsHadiPlaying(false);
+
+    window.addEventListener('toggle-bg-music', handleToggleMute);
+    window.addEventListener('hadi-music-on', handleHadiOn);
+    window.addEventListener('hadi-music-off', handleHadiOff);
+
+    return () => {
+      window.removeEventListener('toggle-bg-music', handleToggleMute);
+      window.removeEventListener('hadi-music-on', handleHadiOn);
+      window.removeEventListener('hadi-music-off', handleHadiOff);
+    };
+  }, []);
+
+  // Audio Playback Control Logic
+  useEffect(() => {
+    const bgAudio = bgAudioRef.current;
+    const hadiAudio = hadiAudioRef.current;
+    if (!bgAudio || !hadiAudio) return;
+
+    // Background Music
+    if (isMuted) {
+      bgAudio.pause();
+    } else if (!isHadiPlaying) {
+      bgAudio.play().catch(() => {});
+    } else {
+      bgAudio.pause(); // Pause bg when hadi plays
+    }
+
+    // Hadi Music (Independent of isMuted based on user request)
+    if (isHadiPlaying) {
+      hadiAudio.play().catch(() => {});
+    } else {
+      hadiAudio.pause();
+      hadiAudio.currentTime = 0;
+    }
+  }, [isMuted, isHadiPlaying]);
 
   return null;
 }

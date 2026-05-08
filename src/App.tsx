@@ -8,6 +8,8 @@ import Company from './components/Company';
 import AppHub from './components/AppHub';
 import Gallery from './components/Gallery';
 import Socials from './components/Socials';
+import BirthdayCelebration from './components/BirthdayCelebration';
+import FloatingSticker from './components/FloatingSticker';
 import ChatBot from './components/ChatBot';
 import MusicManager from './components/MusicManager';
 import MusicPrompt from './components/MusicPrompt';
@@ -15,6 +17,7 @@ import Modal from './components/Modal';
 import AdminMessages from './pages/AdminMessages';
 import { PROFILE_IMAGE, APPS, BRAND_VIDEO_URL } from './constants/data';
 import { Layers } from 'lucide-react';
+import { getEmbedUrl } from './lib/videoUtils';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, updateDoc, increment as firestoreIncrement, getDoc, setDoc } from 'firebase/firestore';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -24,7 +27,57 @@ export default function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
   const [isAppHubModalOpen, setIsAppHubModalOpen] = useState(false);
+  const [isAppHubAdmin, setIsAppHubAdmin] = useState(false);
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
+  const [currentBrandVideo, setCurrentBrandVideo] = useState(localStorage.getItem('customBrandVideo') || BRAND_VIDEO_URL);
+  const [currentProfileImg, setCurrentProfileImg] = useState(localStorage.getItem('customProfileImg') || PROFILE_IMAGE);
+  const [appHubShortcutUrl, setAppHubShortcutUrl] = useState(localStorage.getItem('appHubShortcutUrl') || 'https://darling-hummingbird-8a9e74.netlify.app/');
+  
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressActive = useRef(false);
+
+  const startLongPress = () => {
+    isLongPressActive.current = false;
+    const duration = 7000; 
+
+    if (window.navigator.vibrate) window.navigator.vibrate(50);
+
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressActive.current = true;
+      setIsAppHubAdmin(true);
+      setIsAppHubModalOpen(true);
+      if (window.navigator.vibrate) window.navigator.vibrate([100, 50, 100]);
+    }, duration);
+  };
+
+  const endLongPress = () => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+  };
+
+  useEffect(() => {
+    // Listen for storage changes
+    const handleStorage = () => {
+      setAppHubShortcutUrl(localStorage.getItem('appHubShortcutUrl') || 'https://darling-hummingbird-8a9e74.netlify.app/');
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  useEffect(() => {
+    // Sync with other components changes if any
+    const interval = setInterval(() => {
+      const savedVideo = localStorage.getItem('customBrandVideo') || BRAND_VIDEO_URL;
+      if (savedVideo !== currentBrandVideo) {
+        setCurrentBrandVideo(savedVideo);
+      }
+      
+      const savedImg = localStorage.getItem('customProfileImg') || PROFILE_IMAGE;
+      if (savedImg !== currentProfileImg) {
+        setCurrentProfileImg(savedImg);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [currentBrandVideo, currentProfileImg]);
 
   const isAdminPage = window.location.pathname === '/admin-messages';
 
@@ -51,10 +104,14 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <BirthdayCelebration />
+      <FloatingSticker />
+
       {!showWelcome && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
           transition={{ duration: 1 }}
           className="relative z-10"
         >
@@ -89,7 +146,7 @@ export default function App() {
               >
                 <div className="w-20 h-20 md:w-32 md:h-32 rounded-[28px] md:rounded-[40px] glass flex items-center justify-center border-neon-blue/30 shadow-[0_0_50px_rgba(0,242,255,0.2)] animate-float overflow-hidden">
                   <img 
-                    src={PROFILE_IMAGE} 
+                    src={currentProfileImg} 
                     alt="Profile" 
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
@@ -151,10 +208,22 @@ export default function App() {
 
                   {/* App Hub Shortcut Icon */}
                   <motion.div
-                    onClick={() => window.open('https://darling-hummingbird-8a9e74.netlify.app/', '_blank')}
+                    onMouseDown={startLongPress}
+                    onMouseUp={endLongPress}
+                    onMouseLeave={endLongPress}
+                    onTouchStart={startLongPress}
+                    onTouchEnd={endLongPress}
+                    onTouchCancel={endLongPress}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (!isLongPressActive.current) {
+                        window.open(appHubShortcutUrl, '_blank');
+                      }
+                      isLongPressActive.current = false;
+                    }}
                     whileHover={{ scale: 1.1, y: -5 }}
                     whileTap={{ scale: 0.9 }}
-                    className="group flex flex-col items-center gap-3 cursor-pointer"
+                    className="group flex flex-col items-center gap-3 cursor-pointer select-none"
                   >
                     <div className="w-12 h-12 md:w-14 md:h-14 rounded-full glass flex items-center justify-center text-neon-purple border-neon-purple/30 shadow-[0_0_20px_rgba(191,0,255,0.1)] group-hover:neon-glow transition-all duration-300">
                       <svg 
@@ -206,7 +275,10 @@ export default function App() {
 
             <Profile />
             
-            <Skills onOpenAppHub={() => setIsAppHubModalOpen(true)} />
+            <Skills onOpenAppHub={() => {
+              setIsAppHubAdmin(false);
+              setIsAppHubModalOpen(true);
+            }} />
             <Company onOpenModal={() => setIsBrandModalOpen(true)} />
             <Socials />
 
@@ -237,11 +309,14 @@ export default function App() {
 
           <Modal 
             isOpen={isAppHubModalOpen} 
-            onClose={() => setIsAppHubModalOpen(false)} 
+            onClose={() => {
+              setIsAppHubModalOpen(false);
+              setIsAppHubAdmin(false);
+            }} 
             title="App Hub" 
             accentColor="neon-purple"
           >
-            <AppHub isModal />
+            <AppHub isModal autoShowAdmin={isAppHubAdmin} />
           </Modal>
 
           <Modal 
@@ -252,19 +327,34 @@ export default function App() {
           >
             <div className="max-w-4xl mx-auto">
               <div className="aspect-video rounded-3xl overflow-hidden glass border-white/10 mb-8 relative group">
-                {BRAND_VIDEO_URL ? (
-                  <video 
-                    src={BRAND_VIDEO_URL} 
-                    controls 
-                    autoPlay 
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
-                    <Layers size={64} className="mb-4 animate-pulse" />
-                    <p className="font-bold tracking-widest uppercase">Brand Video Coming Soon</p>
-                  </div>
-                )}
+                {(() => {
+                  const video = getEmbedUrl(currentBrandVideo);
+                  if (video.type === 'youtube') {
+                    return (
+                      <iframe 
+                        src={video.url.replace('controls=0', 'controls=1').replace('mute=1', 'mute=0')} 
+                        className="w-full h-full border-none"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    );
+                  } else if (video.type === 'direct') {
+                    return (
+                      <video 
+                        src={video.url} 
+                        controls 
+                        autoPlay 
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  }
+                  return (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-white/20">
+                      <Layers size={64} className="mb-4 animate-pulse" />
+                      <p className="font-bold tracking-widest uppercase">Brand Video Coming Soon</p>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="glass-card p-8 border-neon-blue/20">
@@ -295,6 +385,7 @@ export default function App() {
             </div>
           </Modal>
         </motion.div>
+        </>
       )}
 
       {/* Floating Particles Background */}

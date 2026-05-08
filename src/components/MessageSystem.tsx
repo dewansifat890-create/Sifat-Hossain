@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import { Send, X, MessageSquare, User, ShieldCheck, Volume2, VolumeX, Mail } from 'lucide-react';
+import { Send, X, MessageSquare, Mail } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, query, where, onSnapshot, orderBy, serverTimestamp, Timestamp, deleteDoc, doc, getDocs, writeBatch } from 'firebase/firestore';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -70,7 +70,6 @@ export default function MessageSystem() {
   const [showText, setShowText] = useState(false);
   const [message, setMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [isMuted, setIsMuted] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [authError, setAuthError] = useState<boolean>(false);
   
@@ -145,11 +144,6 @@ export default function MessageSystem() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
-
-  const handleToggleMusic = () => {
-    window.dispatchEvent(new CustomEvent('toggle-bg-music'));
-    setIsMuted(!isMuted);
-  };
 
   const handleClearChat = async () => {
     if (!currentUserId) return;

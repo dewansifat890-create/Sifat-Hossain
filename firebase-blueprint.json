@@ -66,9 +66,11 @@
       "description": "Global website statistics.",
       "type": "object",
       "properties": {
-        "visitorCount": { "type": "integer" }
+        "visitorCount": { "type": "integer" },
+        "followers": { "type": "integer" },
+        "likes": { "type": "integer" }
       },
-      "required": ["visitorCount"]
+      "required": ["visitorCount", "followers", "likes"]
     }
   },
   "firestore": {
@@ -76,7 +78,6 @@
     "/doodles/{doodleId}": { "schema": "Doodle", "description": "Custom doodles" },
     "/apps/{appId}": { "schema": "App", "description": "App Hub items" },
     "/gallery/{imageId}": { "schema": "GalleryImage", "description": "Gallery photos" },
-    "/music/{trackId}": { "schema": "MusicTrack", "description": "Music playlist" },
-    "/site_stats/visitor_count": { "schema": "VisitorStats", "description": "Global visitor counter" }
+    "/music/{trackId}": { "schema": "MusicTrack", "description": "Music playlist" }
   }
 }

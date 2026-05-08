@@ -6,7 +6,7 @@ export default function WelcomeAnimation({ onComplete }: { onComplete: () => voi
   
   useEffect(() => {
     setShow(true);
-    const timer = setTimeout(onComplete, 3500);
+    const timer = setTimeout(onComplete, 1200);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
@@ -24,12 +24,11 @@ export default function WelcomeAnimation({ onComplete }: { onComplete: () => voi
           {letters.map((char, i) => (
             <motion.span
               key={i}
-              initial={{ opacity: 0, y: 50, rotateX: -90, scale: 0.5 }}
+              initial={{ opacity: 0, scale: 0.5, filter: 'blur(10px)' }}
               animate={{ 
                 opacity: 1, 
-                y: 0, 
-                rotateX: 0, 
                 scale: 1,
+                filter: 'blur(0px)',
                 textShadow: [
                   "0 0 0px rgba(0,242,255,0)",
                   "0 0 20px rgba(0,242,255,0.8)",
@@ -37,10 +36,9 @@ export default function WelcomeAnimation({ onComplete }: { onComplete: () => voi
                 ]
               }}
               transition={{ 
-                duration: 0.8, 
-                delay: i * 0.1,
-                type: "spring",
-                stiffness: 100,
+                duration: 0.4, 
+                delay: i * 0.05,
+                ease: [0.23, 1, 0.32, 1],
                 textShadow: {
                   type: "tween",
                   duration: 1.5,
@@ -58,7 +56,7 @@ export default function WelcomeAnimation({ onComplete }: { onComplete: () => voi
         <motion.div 
           initial={{ scaleX: 0, opacity: 0 }}
           animate={{ scaleX: 1, opacity: 1 }}
-          transition={{ delay: 1, duration: 1 }}
+          transition={{ delay: 0.5, duration: 0.5 }}
           className="h-[2px] w-full bg-gradient-to-r from-transparent via-neon-blue to-transparent mt-4"
         />
       </div>

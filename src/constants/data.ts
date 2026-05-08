@@ -29,7 +29,7 @@ export const SOCIALS = [
   { name: 'Facebook', url: 'https://www.facebook.com/share/1CVLij7qiU/?mibextid=wwXIfr', icon: 'Facebook' },
   { name: 'Instagram', url: 'https://www.instagram.com/dewansifat890?igsh=MXQ0NXQzMDBleXZ4Yg%3D%3D&utm_source=qr', icon: 'Instagram' },
   { name: 'TikTok', url: 'https://www.tiktok.com/@dewan.sifat?_r=1&_t=ZS-952q0TCS0eY', icon: 'Snowflake' },
-  { name: 'Twitter', url: '#', icon: 'Twitter' },
+  { name: 'Twitter', url: 'https://x.com/sifathossain01?s=21', icon: 'Twitter' },
   { name: 'Hopenity', url: '#', icon: 'Link' }
 ];
 

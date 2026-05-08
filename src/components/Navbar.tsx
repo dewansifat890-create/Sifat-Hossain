@@ -79,7 +79,7 @@ export default function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => localStorage.getItem('music-muted') === 'true');
   const [currentDoodle, setCurrentDoodle] = useState<any>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -109,8 +109,15 @@ export default function Navbar() {
       }
     };
 
+    const handleMusicStatus = (e: any) => {
+      if (e.detail) {
+        setIsMuted(e.detail.isMuted);
+      }
+    };
+
     window.addEventListener('scroll', handleScroll);
     document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('music-status', handleMusicStatus);
 
     // Check for today's doodle
     const checkDoodles = async (allDoodles: any[]) => {
@@ -153,13 +160,13 @@ export default function Navbar() {
     return () => {
       window.removeEventListener('scroll', handleScroll);
       document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('music-status', handleMusicStatus);
       unsubscribeDoodles();
     };
   }, []);
 
   const handleToggleMusic = () => {
     window.dispatchEvent(new CustomEvent('toggle-bg-music'));
-    setIsMuted(!isMuted);
     setIsMoreMenuOpen(false);
   };
 
