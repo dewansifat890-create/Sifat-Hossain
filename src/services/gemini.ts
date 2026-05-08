@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 // Use the key provided by the user if it's there, otherwise fall back to platform env
-const API_KEY = process.env.GEMINI_API_KEY || "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8";
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8";
 
 let genAI: GoogleGenAI | null = null;
 
