@@ -1,7 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Use the key provided by the user if it's there, otherwise fall back to platform env
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8";
+// Use the key provided by the user if it's there
+const getApiKey = () => {
+  try {
+    const viteKey = import.meta.env.VITE_GEMINI_API_KEY;
+    // process check is needed because Vite's 'define' might replace it with a string or literal
+    let processKey = '';
+    try {
+      // @ts-ignore
+      processKey = process.env.GEMINI_API_KEY;
+    } catch (e) {}
+    
+    const key = viteKey || processKey || "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8";
+    return (key === 'undefined' || key === 'null') ? "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8" : key;
+  } catch (e) {
+    return "AIzaSyAsDIrwshlZaRxOxfmuR0lEohrJAHOEvs8";
+  }
+};
+
+const API_KEY = getApiKey();
 
 let genAI: GoogleGenAI | null = null;
 
